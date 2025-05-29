@@ -1,0 +1,20 @@
+# Arquivos Python compilados
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# Arquivos de ambiente virtual
+.env
+.venv
+env/
+venv/
+
+# Config do VSCode (opcional)
+.vscode/
+
+# Cache do Streamlit
+.streamlit/config.toml

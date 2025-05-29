@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime
 import os
 
+
 # Constants
 FERIADOS = [
     '01-01', '07-09', '25-12', '01-05',  # Nacionais
@@ -17,7 +18,7 @@ FERIADOS = [
 AZURE_CONFIG = {
     "ORGANIZATION": "iaratech",
     "PROJECT": "Iara",
-    "PAT": os.getenv("AZURE_PAT"),,
+    "PAT": os.getenv("AZURE_PAT"),
     "WORKING_HOURS_PER_DAY": 7,
     "DEFAULT_DEV_COUNT": 5
 }

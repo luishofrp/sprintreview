@@ -170,6 +170,42 @@ class AzureDevOpsAPI:
             })
 
         return result
+def mostrar_card_performance(work_items):
+    st.markdown("## 📈 Performance da Sprint")
+    tasks = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Task']
+    planejadas = [t for t in tasks if '[nãoplanejada]' not in t['fields'].get('System.Title', '').lower()]
+    nao_planejadas = [t for t in tasks if '[nãoplanejada]' in t['fields'].get('System.Title', '').lower()]
+
+    planejadas_done = [t for t in planejadas if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+    nao_planejadas_done = [t for t in nao_planejadas if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+
+    total_tasks_done = [t for t in tasks if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+
+    # Cálculos
+    total_planejadas = len(planejadas)
+    total_planejadas_done = len(planejadas_done)
+    total_nao_planejadas = len(nao_planejadas)
+    total_nao_planejadas_done = len(nao_planejadas_done)
+    total_done = len(total_tasks_done)
+
+    perf_planejadas = (total_planejadas_done / total_planejadas * 100) if total_planejadas else 0
+    perf_nao_planejadas = (total_nao_planejadas_done / total_nao_planejadas * 100) if total_nao_planejadas else 0
+    perf_geral = (total_done / (total_planejadas + total_nao_planejadas) * 100) if (total_planejadas + total_nao_planejadas) else 0
+
+    st.markdown("### 📊 Resultados da Sprint")
+    st.write(f"**Total de Tasks Planejadas:** {total_planejadas}")
+    st.write(f"**Total de Tasks Done:** {total_done}")
+    st.write(f"**Performance Geral:** {perf_geral:.1f}%")
+
+    st.markdown("### ✅ Total Planejado")
+    st.write(f"**Quantidade de Tasks Planejadas:** {total_planejadas}")
+    st.write(f"**Quantidade de Planejadas Done:** {total_planejadas_done}")
+    st.write(f"**Performance Planejadas:** {perf_planejadas:.1f}%")
+
+    st.markdown("### ⚠️ Total Não Planejado")
+    st.write(f"**Quantidade de Tasks Não Planejadas:** {total_nao_planejadas}")
+    st.write(f"**Quantidade de Não Planejadas Done:** {total_nao_planejadas_done}")
+    st.write(f"**Performance Não Planejadas:** {perf_nao_planejadas:.1f}%")
     
 
 # Adição no Dashboard (interface)
@@ -194,7 +230,7 @@ def exibir_atividades_nao_planejadas(grouped_data):
 
 # HTML Export Function
 
-def gerar_html_cards(grouped_data, sprint_title, periodo):
+def gerar_html_cards(grouped_data, sprint_title, periodo, dias_uteis):
     html = f"""
     <html><head><meta charset='UTF-8'>
     <style>
@@ -210,9 +246,10 @@ def gerar_html_cards(grouped_data, sprint_title, periodo):
     <h3>{sprint_title}</h3>
     <p><strong>Período:</strong> {periodo}</p>
     """
+
     for dev, dados in grouped_data.items():
         total_itens = len(dados["items"])
-        horas_planejadas = 10 * 7
+        horas_planejadas = dias_uteis * 7
         nao_planejadas = [i for i in dados["items"] if "[nãoplanejada]" in i["title"].lower()]
         concluidos = [i for i in dados["items"] if i["state"].lower() in ["done", "concluído", "finalizado"]]
         horas_trabalhadas = sum(i["completed_work"] for i in dados["items"] if i["completed_work"] is not None)
@@ -220,6 +257,7 @@ def gerar_html_cards(grouped_data, sprint_title, periodo):
         itens_concluidos = len(concluidos)
         performance = (itens_concluidos / itens_planejados * 100) if itens_planejados else 0
         diferenca_horas = horas_trabalhadas - horas_planejadas
+
         html += f"""
         <div class='card'>
             <h2>👤 {dev}</h2>
@@ -242,30 +280,6 @@ def gerar_html_cards(grouped_data, sprint_title, periodo):
         for item in dados["items"]:
             html += f"<tr><td>{item['id']}</td><td>{item['title']}</td><td>{item['tipo']}</td><td>{item['state']}</td><td>{item['completed_work']}</td></tr>"
         html += "</tbody></table></div>"
-
-    # Novo card com atividades não planejadas
-    atividades_np = [
-        (item['id'], item['title'], item['state'], dev, item['completed_work'])
-        for dev, dados in grouped_data.items()
-        for item in dados['items']
-        if "[nãoplanejada]" in item['title'].lower()
-    ]
-    total_np = len(atividades_np)
-    total_horas_np = sum(item[4] for item in atividades_np if item[4] is not None)
-
-    html += f"""
-    <div class='card'>
-        <h2>🔧 Atividades Não Planejadas</h2>
-        <p><strong>Total de Itens:</strong> {total_np} | <strong>Horas Trabalhadas:</strong> {total_horas_np:.1f}h</p>
-        <table>
-            <thead><tr>
-                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
-            </tr></thead>
-            <tbody>
-    """
-    for item in atividades_np:
-        html += f"<tr><td>{item[0]}</td><td>{item[1]}</td><td>{item[2]}</td><td>{item[3]}</td><td>{item[4]}</td></tr>"
-    html += "</tbody></table></div>"
 
     html += "</body></html>"
     return html
@@ -330,6 +344,7 @@ def mostrar_card_bugs(work_items):
     df_bugs = pd.DataFrame(bug_info)
     st.dataframe(df_bugs)
 
+
 # Versão para HTML exportado
 
 def gerar_html_userstories_card(user_stories):
@@ -383,6 +398,47 @@ def gerar_html_bugs_card(work_items):
     for bug in bugs:
         html += f"<tr><td>{bug['id']}</td><td>{bug['fields'].get('System.Title', '')}</td><td>{bug['fields'].get('System.State', '')}</td><td>{bug['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído')}</td><td>{bug['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)}</td></tr>"
     html += "</tbody></table></div>"
+    return html
+
+def gerar_html_performance_card(work_items):
+    tasks = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Task']
+    planejadas = [t for t in tasks if '[nãoplanejada]' not in t['fields'].get('System.Title', '').lower()]
+    nao_planejadas = [t for t in tasks if '[nãoplanejada]' in t['fields'].get('System.Title', '').lower()]
+
+    planejadas_done = [t for t in planejadas if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+    nao_planejadas_done = [t for t in nao_planejadas if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+
+    total_tasks_done = [t for t in tasks if t['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+
+    total_planejadas = len(planejadas)
+    total_planejadas_done = len(planejadas_done)
+    total_nao_planejadas = len(nao_planejadas)
+    total_nao_planejadas_done = len(nao_planejadas_done)
+    total_done = len(total_tasks_done)
+
+    perf_planejadas = (total_planejadas_done / total_planejadas * 100) if total_planejadas else 0
+    perf_nao_planejadas = (total_nao_planejadas_done / total_nao_planejadas * 100) if total_nao_planejadas else 0
+    perf_geral = (total_done / (total_planejadas + total_nao_planejadas) * 100) if (total_planejadas + total_nao_planejadas) else 0
+
+    html = f"""
+    <div class='card'>
+        <h2>📈 Performance da Sprint</h2>
+        <h3>📊 Resultados da Sprint</h3>
+        <p><strong>Total de Tasks Planejadas:</strong> {total_planejadas}</p>
+        <p><strong>Total de Tasks Done:</strong> {total_done}</p>
+        <p><strong>Performance Geral:</strong> {perf_geral:.1f}%</p>
+
+        <h3>✅ Total Planejado</h3>
+        <p><strong>Quantidade de Tasks Planejadas:</strong> {total_planejadas}</p>
+        <p><strong>Quantidade de Planejadas Done:</strong> {total_planejadas_done}</p>
+        <p><strong>Performance Planejadas:</strong> {perf_planejadas:.1f}%</p>
+
+        <h3>⚠️ Total Não Planejado</h3>
+        <p><strong>Quantidade de Tasks Não Planejadas:</strong> {total_nao_planejadas}</p>
+        <p><strong>Quantidade de Não Planejadas Done:</strong> {total_nao_planejadas_done}</p>
+        <p><strong>Performance Não Planejadas:</strong> {perf_nao_planejadas:.1f}%</p>
+    </div>
+    """
     return html
 
 # Business Logic
@@ -471,24 +527,20 @@ class Dashboard:
         st.metric("Taxa de Conclusão (%)", f"{metrics['completion_rate']:.1f}%")
     
     @staticmethod
-    def show_dev_details(grouped_data):
+    def show_dev_details(grouped_data, dias_uteis):
         st.markdown("## 👨‍💻 Detalhamento por Desenvolvedor")
         for dev, dados in grouped_data.items():
             with st.expander(f"👤 {dev}"):
-                
                 total_itens = len(dados["items"])
-                horas_planejadas = 10 * 7  # Total de horas planejadas considerando 7 horas/dia
+                horas_planejadas = dias_uteis * 7
                 nao_planejadas = [item for item in dados["items"] if "[nãoplanejada]" in item["title"].lower()]
                 concluidos = [item for item in dados["items"] if item["state"].lower() in ["done", "concluído", "finalizado"]]
                 horas_trabalhadas = sum(item["completed_work"] for item in dados["items"] if item["completed_work"] is not None)
 
                 itens_planejados = total_itens - len(nao_planejadas)
                 itens_concluidos = len(concluidos)
-
-                # Performance com base nos planejados
                 performance = (itens_concluidos / itens_planejados) * 100 if itens_planejados else 0
 
-                # Ícone adaptativo
                 if performance >= 100:
                     icone = "💡"
                 elif performance >= 90:
@@ -499,21 +551,20 @@ class Dashboard:
                 diferenca_horas = horas_trabalhadas - horas_planejadas
 
                 card_html = f"""
-                        <div style="border: 1px solid #ccc; border-radius: 12px; padding: 16px; margin: 10px 0; background-color: #f9f9f9;">
-                            <h4>👤 {dev}</h4>
-                            <ul style="list-style-type: none; padding-left: 0; line-height: 1.8;">
-                                <li><strong>Total de Itens:</strong> {total_itens}</li>
-                                <li><strong>Horas Planejadas</strong> {horas_planejadas}</li>
-                                <li><strong>Atividades Planejadas</strong> {itens_planejados}</li>
-                                <li><strong>Atividades Não Planejadas:</strong> {len(nao_planejadas)}</li>
-                                <li><strong>Itens Concluídos:</strong> {itens_concluidos}</li>
-                                <li><strong>Horas Trabalhadas:</strong> {horas_trabalhadas:.1f}</li>
-                                <li><strong>Diferença de Horas:</strong> {diferenca_horas:+.1f}h</li>
-                                <li><strong>Performance:</strong> {performance:.1f}% {icone}</li>
-                            </ul>
-                        </div>
-                        """
-
+                    <div style="border: 1px solid #ccc; border-radius: 12px; padding: 16px; margin: 10px 0; background-color: #f9f9f9;">
+                        <h4>👤 {dev}</h4>
+                        <ul style="list-style-type: none; padding-left: 0; line-height: 1.8;">
+                            <li><strong>Total de Itens:</strong> {total_itens}</li>
+                            <li><strong>Horas Planejadas:</strong> {horas_planejadas}</li>
+                            <li><strong>Atividades Planejadas:</strong> {itens_planejados}</li>
+                            <li><strong>Atividades Não Planejadas:</strong> {len(nao_planejadas)}</li>
+                            <li><strong>Itens Concluídos:</strong> {itens_concluidos}</li>
+                            <li><strong>Horas Trabalhadas:</strong> {horas_trabalhadas:.1f}</li>
+                            <li><strong>Diferença de Horas:</strong> {diferenca_horas:+.1f}h</li>
+                            <li><strong>Performance:</strong> {performance:.1f}% {icone}</li>
+                        </ul>
+                    </div>
+                """
                 st.markdown(card_html, unsafe_allow_html=True)
                 st.progress(min(performance / 100, 1.0))
 
@@ -592,7 +643,6 @@ def main():
     analyzer = SprintAnalyzer()
     dashboard = Dashboard()
     
-
     with st.spinner("Carregando dados da sprint..."):
         try:
             iteration_path = create_sprint_selector(azure_api)
@@ -600,31 +650,46 @@ def main():
             if not ids_with_estimates:
                 st.warning("⚠️ Nenhum Work Item encontrado na sprint selecionada.")
                 return
+            
             work_items = azure_api.get_work_items_details(ids_with_estimates)
             all_iterations = azure_api.get_all_iterations()
             selected_iteration = next(it for it in all_iterations if it["path"] == iteration_path)
+            
             inicio_sprint = datetime.strptime(selected_iteration['attributes']['startDate'], '%Y-%m-%dT%H:%M:%SZ')
             fim_sprint = datetime.strptime(selected_iteration['attributes']['finishDate'], '%Y-%m-%dT%H:%M:%SZ')
+            dias_uteis = analyzer.calcular_dias_uteis(inicio_sprint, fim_sprint)
+
             metricas_gerais = analyzer.calcular_metricas_gerais(work_items, inicio_sprint, fim_sprint)
             agrupados = analyzer.agrupar_por_dev(work_items, inicio_sprint, fim_sprint)
 
             st.subheader(f"🗓 Sprint Selecionada: `{iteration_path}`")
             st.write(f"Período: {inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
-            st.write(f"Dias úteis: {analyzer.calcular_dias_uteis(inicio_sprint, fim_sprint)} dias")
-            
+            st.write(f"Dias úteis: {dias_uteis} dias")
+
             dashboard.show_metrics(metricas_gerais)
             user_stories = azure_api.get_user_stories_with_task_hours(iteration_path)
             mostrar_card_userstories(user_stories)
             mostrar_card_tasks_done(work_items)
             mostrar_card_bugs(work_items)
-            dashboard.show_dev_details(agrupados)
+            mostrar_card_performance(work_items)
+
+            # ✅ Aqui passa o parâmetro dias_uteis
+            dashboard.show_dev_details(agrupados, dias_uteis)
             dashboard.show_comparison_chart(agrupados)
 
             st.markdown("## 📄 Exportar Relatório (HTML para PDF)")
-            html_cards = gerar_html_cards(agrupados, iteration_path, f"{inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
+            
+            # ✅ Também usa dias_uteis aqui
+            html_cards = gerar_html_cards(
+                grouped_data=agrupados,
+                sprint_title=iteration_path,
+                periodo=f"{inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}",
+                dias_uteis=dias_uteis
+            )
             html_cards += gerar_html_userstories_card(user_stories)
             html_cards += gerar_html_tasks_done_card(work_items)
             html_cards += gerar_html_bugs_card(work_items)
+
             st.download_button(
                 label="📥 Baixar HTML para salvar como PDF",
                 data=html_cards,

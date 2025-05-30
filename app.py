@@ -41,22 +41,21 @@ class AzureDevOpsAPI:
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         return response.json().get("value", [])
-    
+
     def get_current_iteration(self):
         url = f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/work/teamsettings/iterations?$timeframe=current&api-version=6.0"
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         data = response.json()
-        
+
         if not data['value']:
             raise Exception("Nenhuma sprint atual encontrada.")
-            
+
         sprint = data['value'][0]
         start = datetime.strptime(sprint['attributes']['startDate'], '%Y-%m-%dT%H:%M:%SZ')
         end = datetime.strptime(sprint['attributes']['finishDate'], '%Y-%m-%dT%H:%M:%SZ')
         return sprint['path'], start, end
-    
-    
+
     def get_work_item_ids(self, iteration_path):
         wiql = {
             "query": f"""
@@ -72,15 +71,15 @@ class AzureDevOpsAPI:
             headers=self.headers, json=wiql)
         response.raise_for_status()
         data = response.json()
-        return [(item['id'], 
+        return [(item['id'],
                  item.get('fields', {}).get('Microsoft.VSTS.Scheduling.OriginalEstimate', 0),
                  item.get('fields', {}).get('Microsoft.VSTS.Scheduling.CompletedWork', 0))
                 for item in data.get('workItems', [])]
-    
+
     def get_work_items_details(self, ids_with_estimates):
         if not ids_with_estimates:
             return []
-            
+
         ids = [item[0] for item in ids_with_estimates]
         url = f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/wit/workitemsbatch?api-version=6.0"
         body = {
@@ -93,19 +92,86 @@ class AzureDevOpsAPI:
         }
         response = requests.post(url, headers=self.headers, json=body)
         response.raise_for_status()
-        
+
         items = response.json().get('value', [])
         estimate_map = {item[0]: item[1] for item in ids_with_estimates}
-        
+
         for item in items:
             item_id = item['id']
             if 'fields' not in item:
                 item['fields'] = {}
             item['fields']['Microsoft.VSTS.Scheduling.OriginalEstimate'] = estimate_map.get(item_id, 0)
-            
+
         return items
     
-    # Adição no Dashboard (interface)
+    
+    
+    def get_user_stories_with_task_hours(self, iteration_path):
+        wiql = {
+            "query": f"""
+                SELECT [System.Id], [System.Title], [System.State], [System.AssignedTo]
+                FROM WorkItems
+                WHERE [System.TeamProject] = '{AZURE_CONFIG['PROJECT']}'
+                  AND [System.IterationPath] = '{iteration_path}'
+                  AND [System.WorkItemType] = 'User Story'
+            """
+        }
+        response = requests.post(
+            f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/wit/wiql?api-version=6.0",
+            headers=self.headers, json=wiql)
+        response.raise_for_status()
+        story_data = response.json().get("workItems", [])
+
+        story_ids = [item["id"] for item in story_data]
+        if not story_ids:
+            return []
+
+        response = requests.post(
+            f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/wit/workitemsbatch?api-version=6.0",
+            headers=self.headers,
+            json={"ids": story_ids, "fields": ["System.Id", "System.Title", "System.State", "System.AssignedTo"]}
+        )
+        response.raise_for_status()
+        stories = response.json().get("value", [])
+
+        result = []
+        for story in stories:
+            story_id = story["id"]
+            story_title = story["fields"].get("System.Title", "")
+            story_state = story["fields"].get("System.State", "")
+            story_dev = story["fields"].get("System.AssignedTo", {}).get("displayName", "Não atribuído")
+
+            rels = requests.get(
+                f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/wit/workitems/{story_id}?$expand=relations&api-version=6.0",
+                headers=self.headers
+            )
+            rels.raise_for_status()
+            relations = rels.json().get("relations", [])
+            task_ids = [int(r["url"].split("/")[-1]) for r in relations if "System.LinkTypes.Hierarchy-Forward" in r.get("rel", "")]
+
+            if not task_ids:
+                total_hours = 0
+            else:
+                task_batch = requests.post(
+                    f"https://dev.azure.com/{AZURE_CONFIG['ORGANIZATION']}/{AZURE_CONFIG['PROJECT']}/_apis/wit/workitemsbatch?api-version=6.0",
+                    headers=self.headers,
+                    json={"ids": task_ids, "fields": ["Microsoft.VSTS.Scheduling.CompletedWork"]}
+                )
+                task_batch.raise_for_status()
+                tasks = task_batch.json().get("value", [])
+                total_hours = sum(t.get("fields", {}).get("Microsoft.VSTS.Scheduling.CompletedWork", 0) for t in tasks)
+
+            result.append({
+                "id": story_id,
+                "title": story_title,
+                "state": story_state,
+                "dev": story_dev,
+                "completed_work": total_hours
+            })
+
+        return result
+
+# Adição no Dashboard (interface)
 def exibir_atividades_nao_planejadas(grouped_data):
     st.markdown("## 🔧 Atividades Não Planejadas")
     rows = []
@@ -124,7 +190,7 @@ def exibir_atividades_nao_planejadas(grouped_data):
         st.dataframe(df)
     else:
         st.write("✅ Nenhuma atividade não planejada encontrada.")
-    
+
 # HTML Export Function
 
 def gerar_html_cards(grouped_data, sprint_title, periodo):
@@ -202,6 +268,47 @@ def gerar_html_cards(grouped_data, sprint_title, periodo):
 
     html += "</body></html>"
     return html
+
+    # Função adicional para mostrar user stories
+
+def mostrar_card_userstories(user_stories):
+    st.markdown("## 📘 User Stories da Sprint")
+
+    story_info = []
+    for us in user_stories:
+        story_info.append({
+            'ID': us['id'],
+            'Título': us['title'],
+            'Status': us['state'],
+            'Desenvolvedor': us['dev'],
+            'Horas Trabalhadas': us['completed_work']
+        })
+
+    st.write(f"Total de User Stories: {len(story_info)}")
+    df_us = pd.DataFrame(story_info)
+    st.dataframe(df_us)
+
+
+# Versão para HTML exportado
+
+def gerar_html_userstories_card(user_stories):
+    html = """
+    <div class='card'>
+        <h2>📦 User Stories da Sprint</h2>
+        <p><strong>Total de User Stories:</strong> %d</p>
+        <table>
+            <thead><tr>
+                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
+            </tr></thead>
+            <tbody>
+    """ % len(user_stories)
+
+    for us in user_stories:
+        html += f"<tr><td>{us['id']}</td><td>{us['title']}</td><td>{us['state']}</td><td>{us['dev']}</td><td>{us['completed_work']}</td></tr>"
+
+    html += "</tbody></table></div>"
+    return html
+
 
 # Business Logic
 class SprintAnalyzer:
@@ -409,6 +516,7 @@ def main():
     azure_api = AzureDevOpsAPI()
     analyzer = SprintAnalyzer()
     dashboard = Dashboard()
+    
 
     with st.spinner("Carregando dados da sprint..."):
         try:
@@ -428,13 +536,16 @@ def main():
             st.subheader(f"🗓 Sprint Selecionada: `{iteration_path}`")
             st.write(f"Período: {inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
             st.write(f"Dias úteis: {analyzer.calcular_dias_uteis(inicio_sprint, fim_sprint)} dias")
-
+            
             dashboard.show_metrics(metricas_gerais)
+            user_stories = azure_api.get_user_stories_with_task_hours(iteration_path)
+            mostrar_card_userstories(user_stories)
             dashboard.show_dev_details(agrupados)
             dashboard.show_comparison_chart(agrupados)
 
             st.markdown("## 📄 Exportar Relatório (HTML para PDF)")
             html_cards = gerar_html_cards(agrupados, iteration_path, f"{inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
+            html_cards += gerar_html_userstories_card(user_stories)
             st.download_button(
                 label="📥 Baixar HTML para salvar como PDF",
                 data=html_cards,

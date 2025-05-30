@@ -104,6 +104,59 @@ class AzureDevOpsAPI:
             item['fields']['Microsoft.VSTS.Scheduling.OriginalEstimate'] = estimate_map.get(item_id, 0)
             
         return items
+    
+# HTML Export Function
+
+def gerar_html_cards(grouped_data, sprint_title, periodo):
+    html = f"""
+    <html><head><meta charset='UTF-8'>
+    <style>
+    body {{ font-family: Arial; }}
+    .card {{ border: 1px solid #ccc; border-radius: 12px; padding: 16px; margin-bottom: 20px; background-color: #f9f9f9; }}
+    ul {{ list-style: none; padding: 0; }}
+    li {{ margin-bottom: 4px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+    th {{ background-color: #f2f2f2; }}
+    </style></head><body>
+    <h1>Relatório de Sprint</h1>
+    <h3>{sprint_title}</h3>
+    <p><strong>Período:</strong> {periodo}</p>
+    """
+    for dev, dados in grouped_data.items():
+        total_itens = len(dados["items"])
+        horas_planejadas = 10 * 7
+        nao_planejadas = [i for i in dados["items"] if "[nãoplanejada]" in i["title"].lower()]
+        concluidos = [i for i in dados["items"] if i["state"].lower() in ["done", "concluído", "finalizado"]]
+        horas_trabalhadas = sum(i["completed_work"] for i in dados["items"] if i["completed_work"] is not None)
+        itens_planejados = total_itens - len(nao_planejadas)
+        itens_concluidos = len(concluidos)
+        performance = (itens_concluidos / itens_planejados * 100) if itens_planejados else 0
+        diferenca_horas = horas_trabalhadas - horas_planejadas
+        html += f"""
+        <div class='card'>
+            <h2>👤 {dev}</h2>
+            <ul>
+                <li><strong>Total de Itens:</strong> {total_itens}</li>
+                <li><strong>Horas Planejadas:</strong> {horas_planejadas}</li>
+                <li><strong>Atividades Planejadas:</strong> {itens_planejados}</li>
+                <li><strong>Atividades Não Planejadas:</strong> {len(nao_planejadas)}</li>
+                <li><strong>Itens Concluídos:</strong> {itens_concluidos}</li>
+                <li><strong>Horas Trabalhadas:</strong> {horas_trabalhadas:.1f}</li>
+                <li><strong>Diferença de Horas:</strong> {diferenca_horas:+.1f}h</li>
+                <li><strong>Performance:</strong> {performance:.1f}%</li>
+            </ul>
+            <table>
+                <thead><tr>
+                    <th>ID</th><th>Título</th><th>Tipo</th><th>Status</th><th>Horas Trabalhadas</th>
+                </tr></thead>
+                <tbody>
+        """
+        for item in dados["items"]:
+            html += f"<tr><td>{item['id']}</td><td>{item['title']}</td><td>{item['tipo']}</td><td>{item['state']}</td><td>{item['completed_work']}</td></tr>"
+        html += "</tbody></table></div>"
+    html += "</body></html>"
+    return html
 
 # Business Logic
 class SprintAnalyzer:
@@ -307,44 +360,42 @@ def create_sprint_selector(api):
 def main():
     st.set_page_config(layout="wide")
     st.title("📊 Sprint Review Dashboard")
-    
+
     azure_api = AzureDevOpsAPI()
     analyzer = SprintAnalyzer()
     dashboard = Dashboard()
 
     with st.spinner("Carregando dados da sprint..."):
         try:
-            # Seletor de Sprint
             iteration_path = create_sprint_selector(azure_api)
-
-            # Buscar dados da sprint selecionada
             ids_with_estimates = azure_api.get_work_item_ids(iteration_path)
-
             if not ids_with_estimates:
                 st.warning("⚠️ Nenhum Work Item encontrado na sprint selecionada.")
                 return
-
             work_items = azure_api.get_work_items_details(ids_with_estimates)
-            
-            # Obter datas da sprint selecionada
             all_iterations = azure_api.get_all_iterations()
             selected_iteration = next(it for it in all_iterations if it["path"] == iteration_path)
             inicio_sprint = datetime.strptime(selected_iteration['attributes']['startDate'], '%Y-%m-%dT%H:%M:%SZ')
             fim_sprint = datetime.strptime(selected_iteration['attributes']['finishDate'], '%Y-%m-%dT%H:%M:%SZ')
-
-            # Analisar dados
             metricas_gerais = analyzer.calcular_metricas_gerais(work_items, inicio_sprint, fim_sprint)
             agrupados = analyzer.agrupar_por_dev(work_items, inicio_sprint, fim_sprint)
 
-            # Exibir resultados
             st.subheader(f"🗓 Sprint Selecionada: `{iteration_path}`")
             st.write(f"Período: {inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
             st.write(f"Dias úteis: {analyzer.calcular_dias_uteis(inicio_sprint, fim_sprint)} dias")
-            
+
             dashboard.show_metrics(metricas_gerais)
             dashboard.show_dev_details(agrupados)
             dashboard.show_comparison_chart(agrupados)
 
+            st.markdown("## 📄 Exportar Relatório (HTML para PDF)")
+            html_cards = gerar_html_cards(agrupados, iteration_path, f"{inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
+            st.download_button(
+                label="📥 Baixar HTML para salvar como PDF",
+                data=html_cards,
+                file_name=f"Relatorio_Sprint_{iteration_path.replace('\\', '_')}.html",
+                mime="text/html"
+            )
         except Exception as e:
             st.error(f"Erro ao buscar dados: {e}")
             return

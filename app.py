@@ -63,7 +63,7 @@ class AzureDevOpsAPI:
                 FROM WorkItems
                 WHERE [System.TeamProject] = '{AZURE_CONFIG['PROJECT']}'
                   AND [System.IterationPath] = '{iteration_path}'
-                  AND [System.WorkItemType] IN ('User Story', 'Task')
+                  AND [System.WorkItemType] IN ('User Story', 'Task', 'Bug')
             """
         }
         response = requests.post(
@@ -170,6 +170,7 @@ class AzureDevOpsAPI:
             })
 
         return result
+    
 
 # Adição no Dashboard (interface)
 def exibir_atividades_nao_planejadas(grouped_data):
@@ -288,6 +289,46 @@ def mostrar_card_userstories(user_stories):
     df_us = pd.DataFrame(story_info)
     st.dataframe(df_us)
 
+def mostrar_card_tasks_done(work_items):
+    st.markdown("## ✅ Tasks Concluídas")
+    done_tasks = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Task' and wi['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+
+    task_info = []
+    for task in done_tasks:
+        task_info.append({
+            'ID': task['id'],
+            'Título': task['fields'].get('System.Title', ''),
+            'Status': task['fields'].get('System.State', ''),
+            'Desenvolvedor': task['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído'),
+            'Horas Trabalhadas': task['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)
+        })
+
+    st.write(f"Total de Tasks Done: {len(task_info)}")
+    df_tasks = pd.DataFrame(task_info)
+    st.dataframe(df_tasks)
+
+
+def mostrar_card_bugs(work_items):
+    st.markdown("## 🐞 Bugs da Sprint")
+    bugs = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Bug']
+
+    bug_info = []
+    total_horas = 0
+    for bug in bugs:
+        horas = bug['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)
+        total_horas += horas
+        bug_info.append({
+            'ID': bug['id'],
+            'Título': bug['fields'].get('System.Title', ''),
+            'Status': bug['fields'].get('System.State', ''),
+            'Desenvolvedor': bug['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído'),
+            'Horas Trabalhadas': horas
+        })
+
+    st.write(f"Total de Bugs: {len(bug_info)}")
+    st.write(f"Horas trabalhadas nos bugs: {total_horas:.1f}h")
+    df_bugs = pd.DataFrame(bug_info)
+    st.dataframe(df_bugs)
 
 # Versão para HTML exportado
 
@@ -309,6 +350,40 @@ def gerar_html_userstories_card(user_stories):
     html += "</tbody></table></div>"
     return html
 
+def gerar_html_tasks_done_card(work_items):
+    done_tasks = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Task' and wi['fields'].get('System.State', '').lower() in ['done', 'concluído', 'finalizado']]
+    html = f"""
+    <div class='card'>
+        <h2>✅ Tasks Concluídas</h2>
+        <p><strong>Total de Tasks Done:</strong> {len(done_tasks)}</p>
+        <table>
+            <thead><tr>
+                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
+            </tr></thead><tbody>
+    """
+    for task in done_tasks:
+        html += f"<tr><td>{task['id']}</td><td>{task['fields'].get('System.Title', '')}</td><td>{task['fields'].get('System.State', '')}</td><td>{task['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído')}</td><td>{task['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)}</td></tr>"
+    html += "</tbody></table></div>"
+    return html
+
+
+def gerar_html_bugs_card(work_items):
+    bugs = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Bug']
+    total_horas = sum(bug['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0) for bug in bugs)
+    html = f"""
+    <div class='card'>
+        <h2>🐞 Bugs da Sprint</h2>
+        <p><strong>Total de Bugs:</strong> {len(bugs)}</p>
+        <p><strong>Horas trabalhadas nos bugs:</strong> {total_horas:.1f}h</p>
+        <table>
+            <thead><tr>
+                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
+            </tr></thead><tbody>
+    """
+    for bug in bugs:
+        html += f"<tr><td>{bug['id']}</td><td>{bug['fields'].get('System.Title', '')}</td><td>{bug['fields'].get('System.State', '')}</td><td>{bug['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído')}</td><td>{bug['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)}</td></tr>"
+    html += "</tbody></table></div>"
+    return html
 
 # Business Logic
 class SprintAnalyzer:
@@ -540,12 +615,16 @@ def main():
             dashboard.show_metrics(metricas_gerais)
             user_stories = azure_api.get_user_stories_with_task_hours(iteration_path)
             mostrar_card_userstories(user_stories)
+            mostrar_card_tasks_done(work_items)
+            mostrar_card_bugs(work_items)
             dashboard.show_dev_details(agrupados)
             dashboard.show_comparison_chart(agrupados)
 
             st.markdown("## 📄 Exportar Relatório (HTML para PDF)")
             html_cards = gerar_html_cards(agrupados, iteration_path, f"{inicio_sprint.strftime('%d/%m/%Y')} a {fim_sprint.strftime('%d/%m/%Y')}")
             html_cards += gerar_html_userstories_card(user_stories)
+            html_cards += gerar_html_tasks_done_card(work_items)
+            html_cards += gerar_html_bugs_card(work_items)
             st.download_button(
                 label="📥 Baixar HTML para salvar como PDF",
                 data=html_cards,

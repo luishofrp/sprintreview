@@ -105,6 +105,26 @@ class AzureDevOpsAPI:
             
         return items
     
+    # Adição no Dashboard (interface)
+def exibir_atividades_nao_planejadas(grouped_data):
+    st.markdown("## 🔧 Atividades Não Planejadas")
+    rows = []
+    for dev, dados in grouped_data.items():
+        for item in dados["items"]:
+            if "[nãoplanejada]" in item["title"].lower():
+                rows.append({
+                    "ID": item["id"],
+                    "Título": item["title"],
+                    "Status": item["state"],
+                    "Desenvolvedor": dev,
+                    "Horas Trabalhadas": item["completed_work"]
+                })
+    if rows:
+        df = pd.DataFrame(rows)
+        st.dataframe(df)
+    else:
+        st.write("✅ Nenhuma atividade não planejada encontrada.")
+    
 # HTML Export Function
 
 def gerar_html_cards(grouped_data, sprint_title, periodo):
@@ -155,6 +175,31 @@ def gerar_html_cards(grouped_data, sprint_title, periodo):
         for item in dados["items"]:
             html += f"<tr><td>{item['id']}</td><td>{item['title']}</td><td>{item['tipo']}</td><td>{item['state']}</td><td>{item['completed_work']}</td></tr>"
         html += "</tbody></table></div>"
+
+    # Novo card com atividades não planejadas
+    atividades_np = [
+        (item['id'], item['title'], item['state'], dev, item['completed_work'])
+        for dev, dados in grouped_data.items()
+        for item in dados['items']
+        if "[nãoplanejada]" in item['title'].lower()
+    ]
+    total_np = len(atividades_np)
+    total_horas_np = sum(item[4] for item in atividades_np if item[4] is not None)
+
+    html += f"""
+    <div class='card'>
+        <h2>🔧 Atividades Não Planejadas</h2>
+        <p><strong>Total de Itens:</strong> {total_np} | <strong>Horas Trabalhadas:</strong> {total_horas_np:.1f}h</p>
+        <table>
+            <thead><tr>
+                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
+            </tr></thead>
+            <tbody>
+    """
+    for item in atividades_np:
+        html += f"<tr><td>{item[0]}</td><td>{item[1]}</td><td>{item[2]}</td><td>{item[3]}</td><td>{item[4]}</td></tr>"
+    html += "</tbody></table></div>"
+
     html += "</body></html>"
     return html
 

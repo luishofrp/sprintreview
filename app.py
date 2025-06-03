@@ -228,6 +228,24 @@ def exibir_atividades_nao_planejadas(grouped_data):
     else:
         st.write("✅ Nenhuma atividade não planejada encontrada.")
 
+def exibir_atividades_sustentacao(grouped_data):
+    st.markdown("## 🛠️ Atividades de Sustentação")
+    rows = []
+    for dev, dados in grouped_data.items():
+        for item in dados["items"]:
+            if "[sustentação]" in item["title"].lower():
+                rows.append({
+                    "ID": item["id"],
+                    "Título": item["title"],
+                    "Status": item["state"],
+                    "Desenvolvedor": dev,
+                    "Horas Trabalhadas": item["completed_work"]
+                })
+    if rows:
+        df = pd.DataFrame(rows)
+        st.dataframe(df)
+    else:
+        st.write("✅ Nenhuma atividade de sustentação encontrada.")
 # HTML Export Function
 
 def gerar_html_cards(grouped_data, sprint_title, periodo, dias_uteis):
@@ -399,6 +417,32 @@ def gerar_html_bugs_card(work_items):
         html += f"<tr><td>{bug['id']}</td><td>{bug['fields'].get('System.Title', '')}</td><td>{bug['fields'].get('System.State', '')}</td><td>{bug['fields'].get('System.AssignedTo', {}).get('displayName', 'Não atribuído')}</td><td>{bug['fields'].get('Microsoft.VSTS.Scheduling.CompletedWork', 0)}</td></tr>"
     html += "</tbody></table></div>"
     return html
+def gerar_html_sustentacao_card(grouped_data):
+    atividades_sustentacao = [
+        (item['id'], item['title'], item['state'], dev, item['completed_work'])
+        for dev, dados in grouped_data.items()
+        for item in dados['items']
+        if '[sustentação]' in item['title'].lower()
+    ]
+
+    total = len(atividades_sustentacao)
+    total_horas = sum(item[4] for item in atividades_sustentacao if item[4] is not None)
+
+    html = f"""
+    <div class='card'>
+        <h2>🛠️ Atividades de Sustentação</h2>
+        <p><strong>Total de Itens:</strong> {total} | <strong>Horas Trabalhadas:</strong> {total_horas:.1f}h</p>
+        <table>
+            <thead><tr>
+                <th>ID</th><th>Título</th><th>Status</th><th>Desenvolvedor</th><th>Horas Trabalhadas</th>
+            </tr></thead>
+            <tbody>
+    """
+    for item in atividades_sustentacao:
+        html += f"<tr><td>{item[0]}</td><td>{item[1]}</td><td>{item[2]}</td><td>{item[3]}</td><td>{item[4]}</td></tr>"
+
+    html += "</tbody></table></div>"
+    return html
 
 def gerar_html_performance_card(work_items):
     tasks = [wi for wi in work_items if wi['fields'].get('System.WorkItemType') == 'Task']
@@ -440,6 +484,28 @@ def gerar_html_performance_card(work_items):
     </div>
     """
     return html
+
+def exibir_atividades_sustentacao(grouped_data):
+    st.markdown("## 🛠️ Atividades de Sustentação")
+    rows = []
+    for dev, dados in grouped_data.items():
+        for item in dados["items"]:
+            if "[sustentação]" in item["title"].lower():
+                rows.append({
+                    "ID": item["id"],
+                    "Título": item["title"],
+                    "Status": item["state"],
+                    "Desenvolvedor": dev,
+                    "Horas Trabalhadas": item["completed_work"]
+                })
+    
+    if rows:
+        df = pd.DataFrame(rows)
+        total_horas = df["Horas Trabalhadas"].sum()
+        st.markdown(f"**Total de Atividades:** {len(rows)} | Horas Trabalhadas:**{total_horas:.1f}h**")
+        st.dataframe(df)
+    else:
+        st.success("✅ Nenhuma atividade de sustentação encontrada.")
 
 # Business Logic
 class SprintAnalyzer:
@@ -671,11 +737,13 @@ def main():
             mostrar_card_userstories(user_stories)
             mostrar_card_tasks_done(work_items)
             mostrar_card_bugs(work_items)
+            exibir_atividades_sustentacao(agrupados)
             mostrar_card_performance(work_items)
 
             # ✅ Aqui passa o parâmetro dias_uteis
             dashboard.show_dev_details(agrupados, dias_uteis)
             dashboard.show_comparison_chart(agrupados)
+       
 
             st.markdown("## 📄 Exportar Relatório (HTML para PDF)")
             
@@ -688,6 +756,7 @@ def main():
             )
             html_cards += gerar_html_userstories_card(user_stories)
             html_cards += gerar_html_tasks_done_card(work_items)
+            html_cards += gerar_html_sustentacao_card(agrupados)
             html_cards += gerar_html_bugs_card(work_items)
 
             st.download_button(
